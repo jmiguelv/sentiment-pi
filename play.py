@@ -2,6 +2,8 @@
 
 from lxml import etree
 
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+
 from pattern.en import sentiment
 
 import argh
@@ -25,6 +27,7 @@ WORDS_PER_MINUTE = 120
 
 
 @argh.arg('xml_path', help='Path to a TEI XML file of a play')
+@argh.arg('-n', '--nlp', help='The NLP library to use: nltk or pattern')
 @argh.arg('-b', '--brightness', help='Brightness for the Unicorn HAT')
 @argh.arg('-nu', '--no-unicorns',
           help='Runs the script without using the Unicorn HAT')
@@ -32,7 +35,8 @@ WORDS_PER_MINUTE = 120
           help='Prints information about the parsed text: '
           'estimated sentiment, colour intensity, '
           'sleep time after a led is turned on')
-def play(xml_path, brightness=0.2, no_unicorns=False, verbose=False):
+def play(xml_path, nlp='nltk',
+         brightness=0.2, no_unicorns=False, verbose=False):
     """This script parses a TEI XML encoded play, and applies sentiment
     analysis to each speech. The result of the sentiment analysis is displayed
     on the Unicorn HAT - one pixel per speech - using a range of colours from
@@ -45,14 +49,14 @@ def play(xml_path, brightness=0.2, no_unicorns=False, verbose=False):
     lines = _get_lines_from_xml(xml_path)
 
     for idx, line in enumerate(lines):
-        _process_line(idx, line, unicorns, verbose)
+        _process_text(idx, line, nlp, unicorns, verbose)
 
 
-def _process_line(idx, line, unicorns, verbose):
-    polarity, _ = sentiment(line)
+def _process_text(idx, text, nlp, unicorns, verbose):
+    polarity = _get_sentiment(text, nlp)
     intensity = int(math.ceil(abs(polarity) * LIGHT))
     r, g, b = _get_colour(polarity, intensity)
-    speed = _get_speed(line)
+    speed = _get_speed(text)
 
     x = (idx % UH_LED_COUNT) % UH_LED_LINE_COUNT
     y = (idx % UH_LED_COUNT) / UH_LED_LINE_COUNT
@@ -63,7 +67,7 @@ def _process_line(idx, line, unicorns, verbose):
         _print_pixel(x, polarity, speed)
 
     if verbose:
-        print(idx, line, polarity, intensity, speed)
+        print(idx, text, polarity, intensity, speed)
 
 
 def _get_lines_from_xml(xml_path):
@@ -80,6 +84,14 @@ def _get_lines_from_xml(xml_path):
     return lines
 
 
+def _get_sentiment(text, nlp):
+    if nlp == 'pattern':
+        return sentiment(text)[0]
+
+    sid = SentimentIntensityAnalyzer()
+    return sid.polarity_scores(text)['compound']
+
+
 def _get_colour(polarity, intensity):
     if polarity == 0.0:
         return 0, 0, 0
@@ -89,8 +101,8 @@ def _get_colour(polarity, intensity):
         return LIGHT, 0, LIGHT - intensity
 
 
-def _get_speed(line):
-    words = line.split()
+def _get_speed(text):
+    words = text.split()
     count = len(words)
     speed = float(count) / WORDS_PER_MINUTE
 
@@ -111,10 +123,10 @@ def _print_pixel(x, polarity, speed):
     elif polarity < 0:
         symbol = '-'
 
+    print('{} '.format(symbol)),
+
     if x == UH_LED_LINE_COUNT - 1:
         print
-
-    print('{} '.format(symbol)),
 
 if __name__ == '__main__':
     argh.dispatch_command(play)
